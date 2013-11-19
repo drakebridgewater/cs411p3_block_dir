@@ -182,18 +182,18 @@ encrypted_ramdisk_request(struct request_queue *q)
 	req = blk_fetch_request(q);
 	while (req != NULL) {
 		struct encrypted_ramdisk_dev *dev = req->rq_disk->private_data;
-		if (! blk_fs_request(req)) {
+		if ( (req)->cmd_type != REQ_TYPE_FS ) {
 			printk (KERN_NOTICE "(ENCRYPTED_RAMDISK) Skip non-fs request\n");
-			end_request(req, 0);
+			blk_end_request_cur(req, 0);
 			continue;
 		}
     //    	printk (KERN_NOTICE "(ENCRYPTED_RAMDISK) Req dev %d dir %ld sec %ld, nr %d f %lx\n",
     //    			dev - Devices, rq_data_dir(req),
     //    			req->sector, req->current_nr_sectors,
     //    			req->flags);
-		encrypted_ramdisk_transfer(dev, req->sector, req->current_nr_sectors,
+		encrypted_ramdisk_transfer(dev, blk_rq_pos(req), blk_rq_cur_sectors(req),
 				req->buffer, rq_data_dir(req));
-		end_request(req, 1);
+		blk_end_request_cur(req, 1);
 	}
 }
 
@@ -211,9 +211,9 @@ encrypted_ramdisk_xfer_bio(struct encrypted_ramdisk_dev *dev, struct bio *bio)
 	/* Do each segment independently. */
 	bio_for_each_segment(bvec, bio, i) {
 		char *buffer = __bio_kmap_atomic(bio, i, KM_USER0);
-		encrypted_ramdisk_transfer(dev, sector, bio_cur_sectors(bio),
+		encrypted_ramdisk_transfer(dev, sector,	bio_cur_bytes(bio) >> 9,
 				buffer, bio_data_dir(bio) == WRITE);
-		sector += bio_cur_sectors(bio);
+		sector += bio_cur_bytes(bio) >> 9;
 		__bio_kunmap_atomic(bio, KM_USER0);
 	}
 	return 0; /* Always "succeed" */
@@ -227,8 +227,8 @@ encrypted_ramdisk_xfer_request(struct encrypted_ramdisk_dev *dev, struct request
 {
 	struct bio *bio;
 	int nsect = 0;
-    
-	rq_for_each_bio(bio, req);
+   	
+	__rq_for_each_bio(bio, req); 
 	
 	encrypted_ramdisk_xfer_bio(dev, bio);
 	nsect += bio->bi_size/KERNEL_SECTOR_SIZE;
@@ -248,10 +248,10 @@ encrypted_ramdisk_full_request(struct request_queue *q)
 	int sectors_xferred;
 	struct encrypted_ramdisk_dev *dev = q->queuedata;
 
-	while ((req = elv_next_request(q)) != NULL) {
-		if (! blk_fs_request(req)) {
+	while ((req = blk_fetch_request(q)) != NULL) {
+		if (! (req)->cmd_type != REQ_TYPE_FS) {
 			printk (KERN_NOTICE "(ENCRYPTED_RAMDISK) Skip non-fs request\n");
-			end_request(req, 0);
+			blk_end_request_cur(req, 0);
 			continue;
 		}
 		sectors_xferred = encrypted_ramdisk_xfer_request(dev, req);
