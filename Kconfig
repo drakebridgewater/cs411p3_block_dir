@@ -88,7 +88,13 @@ config BLK_DEV_THROTTLING
 	cgroups and specifying per device IO rate policies.
 
 	See Documentation/cgroups/blkio-controller.txt for more information.
-
+config BLK_DEV_ENCRYPTED_RAMDISK
+	tristate "Encrypted Ramdisk Driver Group 14"
+	default m
+	---help---
+	This is a custom ramdist driver that allows you to have the data 
+	encrypted. It uses the crypto API to encrypt and decrypt the
+	block device. 
 endif # BLOCK
 
 config BLOCK_COMPAT
