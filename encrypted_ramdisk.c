@@ -255,9 +255,8 @@ encrypted_ramdisk_full_request(struct request_queue *q)
 			continue;
 		}
 		sectors_xferred = encrypted_ramdisk_xfer_request(dev, req);
-		if (! end_that_request_first(req, 1, sectors_xferred)) {
-			blkdev_dequeue_request(req);
-			end_that_request_last(req);
+		if (! __blk_end_request_cur(req,0)) {
+			blk_fetch_request(q);	
 		}
 	}
 }
@@ -268,13 +267,13 @@ encrypted_ramdisk_full_request(struct request_queue *q)
  * The direct make request version.
  */
 static int 
-encrypted_ramdisk_make_request(request_queue_t *q, struct bio *bio)
+encrypted_ramdisk_make_request(struct request_queue *q, struct bio *bio)
 {
 	struct encrypted_ramdisk_dev *dev = q->queuedata;
 	int status;
 
 	status = encrypted_ramdisk_xfer_bio(dev, bio);
-	bio_endio(bio, bio->bi_size, status);
+	bio_endio(bio, status);
 	return 0;
 }
 
@@ -286,13 +285,13 @@ encrypted_ramdisk_make_request(request_queue_t *q, struct bio *bio)
 static int 
 encrypted_ramdisk_open(struct block_device *device, struct file *filp)
 {
-	struct encrypted_ramdisk_dev *dev = device->i_bdev->bd_disk->private_data;
+	struct encrypted_ramdisk_dev *dev = device->bd_disk->private_data;
 
 	del_timer_sync(&dev->timer);
 	filp->private_data = dev;
 	spin_lock(&dev->lock);
 	if (! dev->users) 
-		check_disk_change(device->i_bdev);
+		check_disk_change(device);
 	dev->users++;
 	spin_unlock(&dev->lock);
 	return 0;
@@ -301,7 +300,7 @@ encrypted_ramdisk_open(struct block_device *device, struct file *filp)
 static int 
 encrypted_ramdisk_release(struct gendisk *disk, struct file *filp)
 {
-	struct encrypted_ramdisk_dev *dev = disk->i_bdev->bd_disk->private_data;
+	struct encrypted_ramdisk_dev *dev = disk->private_data;
 
 	spin_lock(&dev->lock);
 	dev->users--;
@@ -461,7 +460,7 @@ setup_device(struct encrypted_ramdisk_dev *dev, int which)
 			goto out_vfree;
 		break;
 	}
-	blk_queue_hardsect_size(dev->queue, hardsect_size);
+	blk_queue_logical_block_size(dev->queue, hardsect_size);
 	dev->queue->queuedata = dev;
 	/*
 	 * And the gendisk structure.
@@ -506,11 +505,11 @@ __init encrypted_ramdisk_init(void)
 	/*
 	 * Allocate the device array, and initialize each one.
 	 */
-	Devices = kmalloc(ndevices*sizeof (struct encrypted_ramdisk_dev), GFP_KERNEL);
-	if (Devices == NULL)
+	devices = kmalloc(ndevices*sizeof (struct encrypted_ramdisk_dev), GFP_KERNEL);
+	if (devices == NULL)
 		goto out_unregister;
 	for (i = 0; i < ndevices; i++) 
-		setup_device(Devices + i, i);
+		setup_device(devices + i, i);
     
 	return 0;
 
@@ -525,7 +524,7 @@ encrypted_ramdisk_exit(void)
 	int i;
 
 	for (i = 0; i < ndevices; i++) {
-		struct encrypted_ramdisk_dev *dev = Devices + i;
+		struct encrypted_ramdisk_dev *dev = devices + i;
 
 		del_timer_sync(&dev->timer);
 		if (dev->gd) {
@@ -542,7 +541,7 @@ encrypted_ramdisk_exit(void)
 			vfree(dev->data);
 	}
 	unregister_blkdev(encrypted_ramdisk_major, "encrypted_ramdisk");
-	kfree(Devices);
+	kfree(devices);
 	crypto_free_cipher(cipher);
 }
 	
